@@ -37,7 +37,7 @@ Code Snippets Panel — это расширение для VS Code, которо
 - Node.js ≥ 18
 
 ## Структура проекта
-
+```
 code-snippets-panel/
 ├─ package.json
 ├─ tsconfig.json
@@ -48,3 +48,4 @@ code-snippets-panel/
 │     └─ webview.html
 └─ media/
    └─ icon.svg
+```
