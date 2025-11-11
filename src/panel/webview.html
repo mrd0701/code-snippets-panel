@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Content-Security-Policy: nonce будет заменён extension.ts -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; style-src 'unsafe-inline' https:; script-src 'nonce-%NONCE%' https:; connect-src https:;"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Code Snippets</title>
+
+    <!-- Tailwind (CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- React + ReactDOM (CDN) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+
+    <style>
+      :root {
+        --bg: #0f172a;
+        --panel-bg: #0b1220;
+      }
+      html, body, #root { height: 100%; margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
+      /* thin custom scrollbar for webview */
+      ::-webkit-scrollbar { width: 10px; height: 10px; }
+      ::-webkit-scrollbar-thumb { background: rgba(100,100,100,0.2); border-radius: 8px; }
+      pre { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Courier New", monospace; font-size: 12px; }
+    </style>
+  </head>
+
+  <body class="bg-slate-50 text-slate-900">
+    <div id="root" class="h-full p-4"></div>
+
+    <!-- Inline app script (nonce injected by extension) -->
+    <script nonce="%NONCE%">
+      // Acquire VS Code API
+      const vscode = acquireVsCodeApi();
+
+      const e = React.createElement;
+      const { useState, useEffect, useRef } = React;
+
+      function uid() {
+        // simple unique id
+        return Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+      }
+
+      function App() {
+        const [items, setItems] = useState([]);
+        const [showAdd, setShowAdd] = useState(false);
+        const [newText, setNewText] = useState('');
+        const [editing, setEditing] = useState(null);
+        const [filter, setFilter] = useState('');
+        const [status, setStatus] = useState('');
+        const listRef = useRef(null);
+
+        useEffect(() => {
+          // message listener
+          function handler(eve) {
+            const msg = eve.data;
+            if (!msg || !msg.command) return;
+            switch (msg.command) {
+              case 'loaded':
+                setItems(Array.isArray(msg.items) ? msg.items : []);
+                break;
+              case 'pasted':
+                setNewText(msg.text ?? '');
+                setShowAdd(true);
+                break;
+              case 'saved':
+                setStatus('Сохранено');
+                clearStatusSoon();
+                break;
+            }
+          }
+          window.addEventListener('message', handler);
+          // request initial data
+          vscode.postMessage({ command: 'load' });
+          return () => window.removeEventListener('message', handler);
+        }, []);
+
+        function clearStatusSoon() {
+          setTimeout(() => setStatus(''), 1200);
+        }
+
+        function persist(next) {
+          setItems(next);
+          vscode.postMessage({ command: 'save', items: next });
+        }
+
+        function onAddClipboard() {
+          vscode.postMessage({ command: 'pasteFromClipboard' });
+        }
+
+        function addBlock() {
+          if (!newText.trim()) return;
+          const next = [{ id: uid(), text: newText.trim() }, ...items];
+          persist(next);
+          setNewText('');
+          setShowAdd(false);
+          setStatus('Добавлено');
+          clearStatusSoon();
+        }
+
+        function removeItem(id) {
+          const next = items.filter(i => i.id !== id);
+          persist(next);
+          setStatus('Удалено');
+          clearStatusSoon();
+        }
+
+        function startEdit(item) {
+          setEditing(item);
+        }
+
+        function saveEdit(id, text) {
+          const next = items.map(i => i.id === id ? { ...i, text } : i);
+          persist(next);
+          setEditing(null);
+          setStatus('Изменено');
+          clearStatusSoon();
+        }
+
+        function copy(text) {
+          vscode.postMessage({ command: 'copy', text });
+          setStatus('Скопировано');
+          clearStatusSoon();
+        }
+
+        function importFromClipboardQuick() {
+          // convenience: paste then add immediately
+          vscode.postMessage({ command: 'pasteFromClipboard' });
+        }
+
+        const filtered = items.filter(it => it.text.toLowerCase().includes(filter.toLowerCase()));
+
+        return e('div', { className: 'flex flex-col h-full' },
+          // Header
+          e('div', { className: 'flex items-center justify-between mb-3 gap-3' },
+            e('div', { className: 'flex items-center gap-3' },
+              e('h2', { className: 'text-lg font-semibold' }, 'Code Snippets'),
+              e('span', { className: 'text-sm text-slate-500' }, `— ${items.length}`)
+            ),
+            e('div', { className: 'flex items-center gap-2' },
+              e('input', {
+                placeholder: 'Фильтр...',
+                value: filter,
+                onChange: (ev) => setFilter(ev.target.value),
+                className: 'px-2 py-1 border rounded text-sm'
+              }),
+              e('button', { className: 'px-3 py-1 rounded bg-blue-600 text-white text-sm', onClick: () => setShowAdd(true) }, 'Добавить'),
+              e('button', { className: 'px-3 py-1 rounded border text-sm', onClick: onAddClipboard }, 'Вставить из буфера')
+            )
+          ),
+
+          // Add area
+          showAdd && e('div', { className: 'mb-3' },
+            e('textarea', {
+              rows: 6,
+              className: 'w-full p-2 border rounded text-sm font-mono',
+              value: newText,
+              onChange: (ev) => setNewText(ev.target.value)
+            }),
+            e('div', { className: 'flex gap-2 mt-2 justify-end' },
+              e('button', { className: 'px-3 py-1 rounded border text-sm', onClick: () => { setShowAdd(false); setNewText(''); } }, 'Отмена'),
+              e('button', { className: 'px-3 py-1 rounded bg-green-600 text-white text-sm', onClick: addBlock }, 'Добавить блок')
+            )
+          ),
+
+          // List
+          e('div', { className: 'overflow-auto border rounded p-2 flex-1', ref: listRef },
+            filtered.length === 0
+              ? e('div', { className: 'text-slate-500 p-4' }, 'Пусто — добавь сниппет или вставь из буфера.')
+              : filtered.map(item =>
+                e('div', {
+                  key: item.id,
+                  className: 'mb-3 bg-white rounded shadow-sm p-3 cursor-default hover:shadow-md transition',
+                },
+                  e('div', { className: 'flex gap-3' },
+                    // snippet body (click to copy)
+                    e('div', {
+                      className: 'flex-1 overflow-auto',
+                      onClick: () => copy(item.text),
+                      title: 'Клик — копировать в буфер',
+                      style: { whiteSpace: 'pre-wrap' }
+                    },
+                      e('pre', { className: 'text-sm' }, item.text)
+                    ),
+
+                    // buttons
+                    e('div', { className: 'flex flex-col gap-2 w-24' },
+                      e('button', { className: 'px-2 py-1 border rounded text-sm', onClick: () => startEdit(item) }, '✏️ Редакт'),
+                      e('button', { className: 'px-2 py-1 border rounded text-sm', onClick: () => removeItem(item.id) }, '❌ Удалить')
+                    )
+                  )
+                )
+              )
+          ),
+
+          // Footer / status
+          e('div', { className: 'mt-2 text-sm text-slate-500 flex items-center justify-between' },
+            e('div', null, status),
+            e('div', null,
+              e('button', { className: 'px-2 py-1 text-xs rounded border', onClick: () => { vscode.postMessage({ command: 'load' }); setStatus('Обновлено'); clearStatusSoon(); } }, 'Обновить'),
+              e('span', { className: 'ml-2 text-xs text-slate-400' }, 'Клик по сниппету → копировать')
+            )
+          ),
+
+          // Edit modal
+          editing && e(EditModal, { item: editing, onClose: () => setEditing(null), onSave: saveEdit })
+        );
+      }
+
+      function EditModal({ item, onClose, onSave }) {
+        const [text, setText] = useState(item.text || '');
+        return e('div', { className: 'fixed inset-0 bg-black/40 flex items-center justify-center z-50' },
+          e('div', { className: 'bg-white rounded p-4 w-11/12 max-w-3xl max-h-[85%] overflow-auto' },
+            e('h3', { className: 'text-lg mb-2' }, 'Редактировать сниппет'),
+            e('textarea', {
+              rows: 12,
+              className: 'w-full p-2 border rounded font-mono text-sm',
+              value: text,
+              onChange: (ev) => setText(ev.target.value)
+            }),
+            e('div', { className: 'flex gap-2 mt-3 justify-end' },
+              e('button', { className: 'px-3 py-1 rounded border text-sm', onClick: onClose }, 'Отмена'),
+              e('button', { className: 'px-3 py-1 rounded bg-blue-600 text-white text-sm', onClick: () => onSave(item.id, text) }, 'Сохранить')
+            )
+          )
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById('root')).render(e(App));
+    </script>
+  </body>
+</html>
